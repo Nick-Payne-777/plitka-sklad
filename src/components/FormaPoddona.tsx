@@ -87,22 +87,18 @@ export default function FormaPoddona({ onClose, onSave, editPoddon }: { onClose:
     setIsSkanerOpen(false)
     if (scanTargetIndex === null) return
 
-    // Очищаем код от возможных пробелов и кавычек, которые могут быть в базе
     const cleanCode = scannedText.replace(/['"\s]/g, '')
 
-    alert("Ищем в базе код: " + cleanCode)
-
     // Ищем плитку в базе по штрих-коду
-    const { data: item, error } = await supabase.from('spravochnik').select('*').eq('shtrihkod', cleanCode).single()
+    const { data: item } = await supabase.from('spravochnik').select('*').eq('shtrihkod', cleanCode).single()
 
     if (item) {
-      alert("Нашли в базе: " + item.nazvanie)
-      selectFromBaza(item) // Если нашли, подставляем
+      selectFromBaza(item) // Мгновенно подставляем данные
     } else {
-      alert("Не нашли в базе. Ошибка: " + (error?.message || "неизвестно"))
-      // Если не нашли, просто вставляем штрих-код и просим ввести название
+      // Если не нашли, вставляем только код
       const poz = pozicii[scanTargetIndex]
       handleChangePozicia(poz.id, 'shtrihkod', cleanCode)
+      alert(`Штрих-код ${cleanCode} не найден в базе. Введите название вручную.`)
     }
     setScanTargetIndex(null)
   }

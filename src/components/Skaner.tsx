@@ -19,8 +19,6 @@ export default function Skaner({ onClose, onScan }: { onClose: () => void, onSca
 
     scanner.render(
       (text) => {
-        // ВОТ ЗДЕСЬ МЫ ВЫВОДИМ ТО, ЧТО ОН СКАНИРОВАЛ
-        alert("Сканер поймал код: " + text)
         scanner.clear()
         onScan(text)
       },
