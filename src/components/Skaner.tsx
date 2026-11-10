@@ -12,16 +12,15 @@ export default function Skaner({ onClose, onScan }: { onClose: () => void, onSca
       { 
         fps: 10, 
         qrbox: { width: 250, height: 250 },
-        // Вот эта строчка заставляет использовать заднюю камеру
-        videoConstraints: {
-          facingMode: "environment"
-        }
+        videoConstraints: { facingMode: "environment" }
       },
       /* verbose= */ false
     )
 
     scanner.render(
       (text) => {
+        // ВОТ ЗДЕСЬ МЫ ВЫВОДИМ ТО, ЧТО ОН СКАНИРОВАЛ
+        alert("Сканер поймал код: " + text)
         scanner.clear()
         onScan(text)
       },
