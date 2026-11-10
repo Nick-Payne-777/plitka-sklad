@@ -1,0 +1,19 @@
+{
+  "name": "Плитка",
+  "packageId": "com.plitka.sklad",
+  "version": "1.0.0",
+  "entry": "dist/index.html",
+  "orientation": "portrait",
+  "statusBar": true,
+  "permissions": [
+    "INTERNET",
+    "CAMERA",
+    "FEATURE_CAMERA"
+  ],
+  "network": {
+    "cleartext": false
+  },
+  "webview": {
+    "backButton": "history"
+  }
+}

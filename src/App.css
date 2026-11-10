@@ -1,0 +1,52 @@
+import { useState } from 'react'
+import { Search, ScanLine, Edit2 } from 'lucide-react'
+
+function App() {
+  const [search, setSearch] = useState('')
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* ВЕРХНЯЯ ПАНЕЛЬ С ПОИСКОМ */}
+      <div style={{ padding: '12px', background: 'white', boxShadow: '0 2px 10px rgba(0,0,0,0.05)', zIndex: 10 }}>
+        <div style={{ 
+          display: 'flex', alignItems: 'center', background: '#f5f5f5', 
+          borderRadius: '12px', padding: '10px 16px', gap: '8px' 
+        }}>
+          <Search size={20} color="#888" />
+          <input 
+            type="text" 
+            placeholder="Поиск по названию или штрих-коду..." 
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{ border: 'none', background: 'transparent', outline: 'none', width: '100%', fontSize: '16px' }}
+          />
+        </div>
+      </div>
+
+      {/* КАРТА */}
+      <div style={{ flex: 1, position: 'relative', backgroundColor: '#f0f2f5', overflow: 'hidden' }}>
+        <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', color: '#aaa', textAlign: 'center' }}>
+          <p>Здесь будет карта склада</p>
+        </div>
+      </div>
+
+      {/* НИЖНИЕ КНОПКИ */}
+      <div style={{ padding: '16px', background: 'white', display: 'flex', gap: '12px', boxShadow: '0 -2px 10px rgba(0,0,0,0.05)', zIndex: 10 }}>
+        <button style={{ 
+          flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px',
+          padding: '14px', borderRadius: '12px', border: 'none', background: '#e2e8f0', color: '#333', fontSize: '15px', fontWeight: '500'
+        }}>
+          <ScanLine size={20} /> Сканировать
+        </button>
+        <button style={{ 
+          flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px',
+          padding: '14px', borderRadius: '12px', border: 'none', background: '#3b82f6', color: 'white', fontSize: '15px', fontWeight: '500'
+        }}>
+          <Edit2 size={20} /> Редактор
+        </button>
+      </div>
+    </div>
+  )
+}
+
+export default App
