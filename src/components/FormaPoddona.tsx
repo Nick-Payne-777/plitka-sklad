@@ -1,25 +1,48 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
-import { X, Trash2, Search, ScanLine } from 'lucide-react'
+import { X, Trash2, Search, ScanLine, Camera } from 'lucide-react'
 import { logHistory } from '../history'
 import Skaner from './Skaner'
 
-export default function FormaPoddona({ onClose, onSave, editPoddon }: { onClose: () => void, onSave: () => void, editPoddon?: any }) {
+export default function FormaPoddona({ onClose, onSave, editPoddon, currentZona }: { onClose: () => void, onSave: () => void, editPoddon?: any, currentZona?: 'zal' | 'sklad' }) {
   const [nomer, setNomer] = useState(editPoddon ? editPoddon.nomer.toString() : '')
-  const [zona, setZona] = useState<'zal' | 'sklad'>(editPoddon ? editPoddon.zona : 'sklad')
+  const [zona, setZona] = useState<'zal' | 'sklad'>(editPoddon ? editPoddon.zona : (currentZona || 'sklad'))
+  const [photoUrl, setPhotoUrl] = useState<string | null>(editPoddon?.photo_url || null)
+  const [uploading, setUploading] = useState(false)
   
   const [pozicii, setPozicii] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
 
-  // Состояния для выбора из базы
   const [isBazaPickerOpen, setIsBazaPickerOpen] = useState(false)
   const [bazaItems, setBazaItems] = useState<any[]>([])
   const [bazaSearch, setBazaSearch] = useState('')
   const [activePozIndex, setActivePozIndex] = useState<number | null>(null)
 
-  // Состояния для сканера
   const [isSkanerOpen, setIsSkanerOpen] = useState(false)
   const [scanTargetIndex, setScanTargetIndex] = useState<number | null>(null)
+
+  // Загрузка фото
+  const handlePhotoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    setUploading(true)
+    try {
+      const fileName = `poddon_${Date.now()}.jpg`
+      const { data, error } = await supabase.storage.from('photos').upload(fileName, file)
+      
+      if (error) throw error
+      
+      const { data: urlData } = supabase.storage.from('photos').getPublicUrl(fileName)
+      setPhotoUrl(urlData.publicUrl)
+    } catch (e: any) {
+      alert('Ошибка загрузки фото: ' + e.message)
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  // ... (ОСТАЛЬНОЙ КОД ФОРМЫ ОСТАЕТСЯ БЕЗ ИЗМЕНЕНИЙ, Я ПРИКРЕПЛЮ ЕГО НИЖЕ)
 
   useEffect(() => {
     if (editPoddon) {
@@ -76,32 +99,49 @@ export default function FormaPoddona({ onClose, onSave, editPoddon }: { onClose:
     setIsBazaPickerOpen(false)
   }
 
-  // Открытие сканера для конкретной позиции
   const openSkaner = (index: number) => {
     setScanTargetIndex(index)
     setIsSkanerOpen(true)
   }
 
-  // Обработка отсканированного кода
   const handleScanResult = async (scannedText: string) => {
-    setIsSkanerOpen(false)
-    if (scanTargetIndex === null) return
+    const targetIdx = scanTargetIndex;
+    setIsSkanerOpen(false);
+    setScanTargetIndex(null);
 
-    const cleanCode = scannedText.replace(/['"\s]/g, '')
-
-    // Ищем плитку в базе по штрих-коду
-    const { data: item } = await supabase.from('spravochnik').select('*').eq('shtrihkod', cleanCode).single()
+    if (targetIdx === null) return;
+    const cleanCode = scannedText.replace(/['"\s]/g, '');
+    const { data: item } = await supabase.from('spravochnik').select('*').eq('shtrihkod', cleanCode).single();
 
     if (item) {
-      selectFromBaza(item) // Мгновенно подставляем данные
+      setPozicii(prev => {
+        const newPozicii = [...prev];
+        if (newPozicii[targetIdx]) {
+          const sizeMatch = item.nazvanie.match(/\d+[xх]\d+/i);
+          newPozicii[targetIdx] = {
+            ...newPozicii[targetIdx],
+            nazvanie: item.nazvanie,
+            shtrihkod: item.shtrihkod,
+            razmer: sizeMatch ? sizeMatch[0] : newPozicii[targetIdx].razmer
+          };
+        }
+        return newPozicii;
+      });
     } else {
-      // Если не нашли, вставляем только код
-      const poz = pozicii[scanTargetIndex]
-      handleChangePozicia(poz.id, 'shtrihkod', cleanCode)
-      alert(`Штрих-код ${cleanCode} не найден в базе. Введите название вручную.`)
+      setPozicii(prev => {
+        const newPozicii = [...prev];
+        if (newPozicii[targetIdx]) {
+          newPozicii[targetIdx] = {
+            ...newPozicii[targetIdx],
+            shtrihkod: cleanCode
+          };
+        }
+        return newPozicii;
+      });
+      alert(`Штрих-код ${cleanCode} не найден в базе. Введите название вручную.`);
     }
-    setScanTargetIndex(null)
   }
+
   async function handleSave() {
     if (!nomer) return alert('Введите номер поддона')
     
@@ -114,10 +154,10 @@ export default function FormaPoddona({ onClose, onSave, editPoddon }: { onClose:
       let currentPoddonId = editPoddon?.id
 
       if (editPoddon) {
-        const { error } = await supabase.from('poddony').update({ nomer: parseInt(nomer), zona }).eq('id', editPoddon.id)
+        const { error } = await supabase.from('poddony').update({ nomer: parseInt(nomer), zona, photo_url: photoUrl }).eq('id', editPoddon.id)
         if (error) throw error
       } else {
-        const { data, error } = await supabase.from('poddony').insert([{ nomer: parseInt(nomer), zona, x: 100, y: 100, w: 100, h: 100 }]).select()
+        const { data, error } = await supabase.from('poddony').insert([{ nomer: parseInt(nomer), zona, photo_url: photoUrl, x: 100, y: 100, w: 100, h: 100 }]).select()
         if (error) throw error
         if (!data || data.length === 0) throw new Error('Не удалось создать поддон')
         currentPoddonId = data[0].id
@@ -189,17 +229,40 @@ export default function FormaPoddona({ onClose, onSave, editPoddon }: { onClose:
         <div style={{ flex: 1, overflowY: 'auto', padding: '20px', WebkitOverflowScrolling: 'touch' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             
-            <div>
-              <label style={{ fontSize: '14px', color: '#666', marginBottom: '4px', display: 'block' }}>Номер поддона *</label>
-              <input type="number" value={nomer} onChange={e => setNomer(e.target.value)} style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #ccc', fontSize: '16px' }} placeholder="Например: 2" />
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: '150px' }}>
+                <label style={{ fontSize: '14px', color: '#666', marginBottom: '4px', display: 'block' }}>Номер поддона *</label>
+                <input type="number" value={nomer} onChange={e => setNomer(e.target.value)} style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #ccc', fontSize: '16px' }} placeholder="Например: 2" />
+              </div>
+              
+              <div style={{ flex: 1, minWidth: '150px' }}>
+                <label style={{ fontSize: '14px', color: '#666', marginBottom: '4px', display: 'block' }}>Зона</label>
+                <select value={zona} onChange={e => setZona(e.target.value as 'zal'|'sklad')} style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #ccc', fontSize: '16px' }}>
+                  <option value="sklad">Склад</option>
+                  <option value="zal">Отдел (Плитка)</option>
+                </select>
+              </div>
             </div>
 
+            {/* БЛОК ФОТО */}
             <div>
-              <label style={{ fontSize: '14px', color: '#666', marginBottom: '4px', display: 'block' }}>Зона</label>
-              <select value={zona} onChange={e => setZona(e.target.value as 'zal'|'sklad')} style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #ccc', fontSize: '16px' }}>
-                <option value="sklad">Склад</option>
-                <option value="zal">Отдел (Плитка)</option>
-              </select>
+              <label style={{ fontSize: '14px', color: '#666', marginBottom: '4px', display: 'block' }}>Фото поддона (опционально)</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ position: 'relative', display: 'inline-block' }}>
+                  <button style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#e2e8f0', color: '#333', padding: '10px 16px', borderRadius: '8px', border: 'none', fontWeight: '500', cursor: 'pointer' }}>
+                    <Camera size={18} /> {uploading ? 'Загрузка...' : (photoUrl ? 'Заменить фото' : 'Загрузить фото')}
+                  </button>
+                  <input type="file" accept="image/*" onChange={handlePhotoUpload} disabled={uploading} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer' }} />
+                </div>
+                {photoUrl && (
+                  <div style={{ position: 'relative', width: '50px', height: '50px', borderRadius: '8px', overflow: 'hidden', border: '1px solid #ccc' }}>
+                    <img src={photoUrl} alt="Фото" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    <button onClick={() => setPhotoUrl(null)} style={{ position: 'absolute', top: 2, right: 2, background: 'rgba(0,0,0,0.5)', border: 'none', borderRadius: '50%', width: '18px', height: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'white' }}>
+                      <X size={12} />
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
 
             <hr style={{ border: 'none', borderTop: '1px solid #eee' }} />
@@ -219,7 +282,6 @@ export default function FormaPoddona({ onClose, onSave, editPoddon }: { onClose:
                     <span style={{ fontSize: '13px', fontWeight: '600', color: '#888' }}>Плитка #{index + 1}</span>
                     <div style={{ display: 'flex', gap: '8px' }}>
                       
-                      {/* НОВАЯ КНОПКА СКАНЕРА */}
                       <button onClick={() => openSkaner(index)} style={{ background: '#3b82f6', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '8px', fontSize: '13px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
                         <ScanLine size={14} /> Скан
                       </button>
@@ -255,7 +317,7 @@ export default function FormaPoddona({ onClose, onSave, editPoddon }: { onClose:
                     <div>
                       <label style={{ fontSize: '13px', color: '#666', marginBottom: '4px', display: 'block' }}>Примерно м²</label>
                       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '8px' }}>
-                        {[10, 20, 40, 50].map(val => (
+                        {[10, 20, 30, 40, 50].map(val => (
                           <button key={val} onClick={() => handleChangePozicia(poz.id, 'primerno_m2', val.toString())} style={{ padding: '6px 12px', borderRadius: '20px', border: '1px solid #ccc', background: poz.primerno_m2?.toString() === val.toString() ? '#3b82f6' : 'white', color: poz.primerno_m2?.toString() === val.toString() ? 'white' : '#333', cursor: 'pointer', fontSize: '14px' }}>
                             ~{val}
                           </button>
@@ -277,7 +339,6 @@ export default function FormaPoddona({ onClose, onSave, editPoddon }: { onClose:
         </div>
       </div>
 
-      {/* МОДАЛКА ВЫБОРА ИЗ БАЗЫ */}
       {isBazaPickerOpen && (
         <div style={{ position: 'fixed', inset: 0, background: 'white', zIndex: 4000, display: 'flex', flexDirection: 'column' }}>
           <div style={{ padding: '20px', borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc' }}>
@@ -311,7 +372,6 @@ export default function FormaPoddona({ onClose, onSave, editPoddon }: { onClose:
         </div>
       )}
 
-      {/* СКАНЕР */}
       {isSkanerOpen && (
         <Skaner 
           onClose={() => { setIsSkanerOpen(false); setScanTargetIndex(null); }} 

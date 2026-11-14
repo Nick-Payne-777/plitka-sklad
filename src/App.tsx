@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Search, ScanLine, Edit2, X, History, Trash2, Database, Monitor } from 'lucide-react'
+import { Search, ScanLine, Edit2, X, History, Trash2, Database, Monitor, Target, MinusCircle } from 'lucide-react'
 import { supabase } from './supabase'
 import FormaPoddona from './components/FormaPoddona'
 import FormaStola from './components/FormaStola'
@@ -32,6 +32,12 @@ function App() {
   const [editStolData, setEditStolData] = useState<any | null>(null)
   const [isSkanerOpen, setIsSkanerOpen] = useState(false)
   const [isBazaOpen, setIsBazaOpen] = useState(false)
+  
+  // Состояния для выдачи
+  const [isVydatOpen, setIsVydatOpen] = useState(false)
+  const [vydatPoddon, setVydatPoddon] = useState<any | null>(null)
+  const [vydatPoz, setVydatPoz] = useState<any | null>(null)
+  const [vydatAmount, setVydatAmount] = useState('')
 
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [draggingType, setDraggingType] = useState<'poddon' | 'stol' | null>(null)
@@ -39,6 +45,7 @@ function App() {
   const itemStartPos = useRef({ x: 0, y: 0 })
   const longPressTimer = useRef<any>(null)
   const isLongPress = useRef(false)
+  const transformRef = useRef<any>(null)
 
   const [highlightedPoddonId, setHighlightedPoddonId] = useState<string | null>(null)
   const [isHistoryOpen, setIsHistoryOpen] = useState(false)
@@ -85,11 +92,12 @@ function App() {
 
   // === ЛОГИКА ДОЛГОГО НАЖАТИЯ И ПЕРЕТАСКИВАНИЯ ===
   const handlePointerDown = (e: React.PointerEvent, item: any, type: 'poddon' | 'stol') => {
-    // Теперь разрешено ВСЕГДА (даже не в редакторе)
+    if (!isRedactorOpen) return; // Запрет движения вне редактора
     e.stopPropagation(); 
     e.preventDefault(); 
     
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    
     isLongPress.current = false;
     
     longPressTimer.current = setTimeout(() => {
@@ -106,7 +114,7 @@ function App() {
   }
 
   const handlePointerMove = (e: React.PointerEvent) => {
-    if (!draggingId || !draggingType) return;
+    if (!draggingId || !draggingType || !isRedactorOpen) return; // Запрет движения вне редактора
     if (isLongPress.current) return; 
     
     const deltaX = e.clientX - dragStartPos.current.x;
@@ -191,6 +199,25 @@ function App() {
     }
   }
 
+  // === СПИСАНИЕ ОСТАТКОВ ===
+  const handleVydat = async () => {
+    if (!vydatPoddon || !vydatPoz || !vydatAmount) return alert('Заполните все поля')
+    const amountToSubtract = parseFloat(vydatAmount)
+    if (isNaN(amountToSubtract) || amountToSubtract <= 0) return alert('Введите корректное число')
+
+    const newM2 = (vydatPoz.primerno_m2 || 0) - amountToSubtract
+    const finalM2 = newM2 < 0 ? 0 : newM2
+
+    await supabase.from('pozicii').update({ primerno_m2: finalM2 }).eq('id', vydatPoz.id)
+    await logHistory('izmenil', 'poddon', vydatPoddon.nomer, `Списано ${amountToSubtract} м² с поддона №${vydatPoddon.nomer}`)
+
+    setIsVydatOpen(false)
+    setVydatPoddon(null)
+    setVydatPoz(null)
+    setVydatAmount('')
+    loadData()
+  }
+
   const openHistory = async () => {
     const { data } = await supabase.from('istoriya').select('*').order('created_at', { ascending: false }).limit(50)
     if (data) setHistoryList(data)
@@ -215,7 +242,14 @@ function App() {
     setTimeout(() => setHighlightedPoddonId(null), 15000)
   }
 
-  if (loadingAuth) return <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center' }}>Загрузка...</div>
+  // Экран загрузки
+  if (loadingAuth) return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', alignItems: 'center', justifyContent: 'center', background: '#f8fafc' }}>
+      <img src="/img/logo.png" alt="Logo" style={{ width: '150px', height: '150px', objectFit: 'contain', marginBottom: '20px' }} onError={(e) => (e.currentTarget.style.display = 'none')} />
+      <h1 style={{ fontSize: '24px', fontWeight: '700', color: '#3b82f6' }}>Плитка Склад</h1>
+      <p style={{ color: '#888', marginTop: '10px' }}>Загрузка данных...</p>
+    </div>
+  )
   if (!session) return <Login />
 
   const filteredPoddony = poddony.filter(p => p.zona === zona)
@@ -223,9 +257,13 @@ function App() {
   const selectedPozicii = selectedPoddon ? pozicii.filter(p => p.poddon_id === selectedPoddon.id) : []
   const canEdit = role === 'admin' || role === 'smena'
 
+  // Список плиток для выдачи
+  const vydatAvailablePoz = vydatPoddon ? pozicii.filter(p => p.poddon_id === vydatPoddon.id) : []
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', userSelect: 'none', overflow: 'hidden' }}>
       
+      {/* ШАПКА */}
       <div style={{ background: 'white', boxShadow: '0 2px 10px rgba(0,0,0,0.05)', zIndex: 10, position: 'relative' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 16px', background: '#f8fafc', borderBottom: '1px solid #eee' }}>
           <span style={{ fontSize: '13px', color: '#666', fontWeight: '500' }}>
@@ -233,6 +271,12 @@ function App() {
           </span>
           <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
             
+            {canEdit && (
+              <button onClick={() => setIsVydatOpen(true)} style={{ background: 'none', border: 'none', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '13px', color: '#10b981', cursor: 'pointer', fontWeight: '600' }}>
+                <MinusCircle size={14} /> Выдать
+              </button>
+            )}
+
             <button onClick={() => setIsBazaOpen(true)} style={{ background: 'none', border: 'none', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '13px', color: '#8b5cf6', cursor: 'pointer', fontWeight: '600' }}>
               <Database size={14} /> База
             </button>
@@ -283,8 +327,34 @@ function App() {
         )}
       </div>
 
+      {/* КАРТА */}
       <div style={{ flex: 1, position: 'relative', backgroundColor: '#f0f2f5', overflow: 'hidden' }}>
-        <TransformWrapper initialScale={0.8} minScale={0.3} maxScale={2} doubleClick={{ disabled: true }} panning={{ velocityDisabled: true, disabled: draggingId !== null }}>
+        
+        {/* Кнопка "Найти меня" */}
+        <button 
+          onClick={() => {
+            if (transformRef.current) {
+              transformRef.current.resetTransform();
+            }
+          }}
+          style={{ 
+            position: 'absolute', bottom: '20px', right: '20px', zIndex: 100, 
+            width: '50px', height: '50px', borderRadius: '50%', 
+            background: 'white', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.2)', 
+            display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' 
+          }}
+        >
+          <Target size={24} color="#3b82f6" />
+        </button>
+
+        <TransformWrapper 
+          ref={transformRef}
+          initialScale={0.8} 
+          minScale={0.3} 
+          maxScale={2} 
+          doubleClick={{ disabled: true }} 
+          panning={{ velocityDisabled: true, disabled: draggingId !== null }}
+        >
           <TransformComponent wrapperStyle={{ width: '100%', height: '100%' }}>
             <div 
               style={{ position: 'relative', width: '3500px', height: '3500px', backgroundImage: 'linear-gradient(#e5e7eb 1px, transparent 1px), linear-gradient(90deg, #e5e7eb 1px, transparent 1px)', backgroundSize: '100px 100px', border: '2px dashed #ccc', touchAction: 'none' }}
@@ -306,7 +376,7 @@ function App() {
                     display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                     fontSize: '16px', fontWeight: '600', color: '#475569', 
                     border: draggingId === s.id ? '2px solid #3b82f6' : '1px dashed #94a3b8', 
-                    cursor: 'grab',
+                    cursor: isRedactorOpen ? 'grab' : 'default',
                     zIndex: draggingId === s.id ? 50 : 1,
                     touchAction: 'none'
                   }}
@@ -327,7 +397,7 @@ function App() {
                     key={p.id}
                     onPointerDown={(e) => handlePointerDown(e, p, 'poddon')}
                     onContextMenu={(e) => e.preventDefault()} 
-                    onClick={() => { if(!draggingId) setSelectedPoddon(p) }}
+                    onClick={() => { if(!isRedactorOpen && !draggingId) setSelectedPoddon(p) }}
                     style={{
                       position: 'absolute', left: p.x, top: p.y, width: 100, height: 100, 
                       backgroundColor: highlightedPoddonId === p.id ? '#fef08a' : (draggingId === p.id ? '#eff6ff' : '#eaddd3'), 
@@ -336,7 +406,7 @@ function App() {
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                       fontSize: '24px', fontWeight: '600', color: '#5c4033', 
                       border: draggingId === p.id ? '2px solid #3b82f6' : '1px solid #c4b5a6', 
-                      cursor: 'grab',
+                      cursor: isRedactorOpen ? 'grab' : 'pointer',
                       zIndex: highlightedPoddonId === p.id ? 100 : (draggingId === p.id ? 50 : 1),
                       transition: highlightedPoddonId === p.id ? 'all 0.3s ease' : 'none',
                       touchAction: 'none'
@@ -351,6 +421,7 @@ function App() {
         </TransformWrapper>
       </div>
 
+      {/* НИЖНЯЯ ПАНЕЛЬ */}
       {!selectedPoddon && !isRedactorOpen && (
         <div style={{ padding: '16px', background: 'white', display: 'flex', gap: '12px', boxShadow: '0 -2px 10px rgba(0,0,0,0.05)', zIndex: 10 }}>
           <button onClick={() => setIsSkanerOpen(true)} style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', padding: '14px', borderRadius: '12px', border: 'none', background: '#e2e8f0', color: '#333', fontSize: '15px', fontWeight: '500', cursor: 'pointer' }}>
@@ -364,6 +435,7 @@ function App() {
         </div>
       )}
 
+      {/* ПАНЕЛЬ РЕДАКТОРА */}
       {isRedactorOpen && !selectedPoddon && canEdit && (
         <div style={{ padding: '16px', background: '#1e293b', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center', zIndex: 10 }}>
           <span style={{ fontWeight: '500' }}>Режим редактора</span>
@@ -423,6 +495,7 @@ function App() {
         </div>
       )}
 
+      {/* КАРТОЧКА ПОДДОНА */}
       {selectedPoddon && !contextMenuPoddon && (
         <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'white', borderTopLeftRadius: '20px', borderTopRightRadius: '20px', boxShadow: '0 -4px 20px rgba(0,0,0,0.15)', padding: '20px', zIndex: 200, maxHeight: '60vh', display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
@@ -460,14 +533,17 @@ function App() {
         </div>
       )}
 
+      {/* ФОРМА ПОДДОНА */}
       {isFormaOpen && (
         <FormaPoddona 
+          currentZona={zona}
           editPoddon={editPoddonData}
           onClose={() => { setIsFormaOpen(false); setEditPoddonData(null); }} 
           onSave={() => { setIsFormaOpen(false); setEditPoddonData(null); loadData(); }} 
         />
       )}
 
+      {/* ФОРМА СТОЛА */}
       {isStolFormaOpen && (
         <FormaStola 
           editStol={editStolData}
@@ -476,14 +552,91 @@ function App() {
         />
       )}
 
+      {/* СКАНЕР */}
       {isSkanerOpen && (
         <Skaner onClose={() => setIsSkanerOpen(false)} onScan={(text) => { setIsSkanerOpen(false); setSearch(text); }} />
       )}
 
+      {/* БАЗА */}
       {isBazaOpen && (
         <Baza role={role} onClose={() => setIsBazaOpen(false)} />
       )}
 
+      {/* МОДАЛКА ВЫДАЧИ */}
+      {isVydatOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div style={{ background: 'white', borderRadius: '16px', width: '100%', maxWidth: '500px', maxHeight: '80vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ padding: '20px', borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h2 style={{ fontSize: '20px', fontWeight: '600' }}>Выдать плитку</h2>
+              <button onClick={() => setIsVydatOpen(false)} style={{ background: '#f0f0f0', border: 'none', borderRadius: '50%', width: '36px', height: '36px', cursor: 'pointer' }}><X size={20} /></button>
+            </div>
+            
+            <div style={{ padding: '20px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              
+              {!vydatPoddon && (
+                <>
+                  <p style={{ color: '#666' }}>1. Выберите поддон:</p>
+                  <select 
+                    onChange={(e) => {
+                      const p = poddony.find(pd => pd.id === e.target.value)
+                      setVydatPoddon(p || null)
+                    }} 
+                    style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #ccc', fontSize: '16px' }}
+                  >
+                    <option value="">-- Выберите поддон --</option>
+                    {poddony.filter(p => p.zona === zona).map(p => (
+                      <option key={p.id} value={p.id}>Поддон №{p.nomer} ({p.zona === 'zal' ? 'Отдел' : 'Склад'})</option>
+                    ))}
+                  </select>
+                </>
+              )}
+
+              {vydatPoddon && !vydatPoz && (
+                <>
+                  <p style={{ color: '#666' }}>2. Выберите плитку на поддоне №{vydatPoddon.nomer}:</p>
+                  <button onClick={() => setVydatPoddon(null)} style={{ alignSelf: 'flex-start', background: 'none', border: 'none', color: '#3b82f6', cursor: 'pointer', textDecoration: 'underline' }}>← Назад к выбору поддона</button>
+                  {vydatAvailablePoz.length === 0 ? (
+                    <p style={{ color: '#ef4444' }}>На этом поддоне нет плитки.</p>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {vydatAvailablePoz.map(poz => (
+                        <div key={poz.id} onClick={() => setVydatPoz(poz)} style={{ padding: '12px', border: '1px solid #eee', borderRadius: '8px', cursor: 'pointer' }}>
+                          <div style={{ fontWeight: '600' }}>{poz.nazvanie}</div>
+                          <div style={{ fontSize: '13px', color: '#666' }}>Остаток: ~{poz.primerno_m2 || 0} м²</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {vydatPoz && (
+                <>
+                  <p style={{ color: '#666' }}>3. Сколько м² выдать?</p>
+                  <button onClick={() => setVydatPoz(null)} style={{ alignSelf: 'flex-start', background: 'none', border: 'none', color: '#3b82f6', cursor: 'pointer', textDecoration: 'underline' }}>← Назад к выбору плитки</button>
+                  <div style={{ background: '#f0f9ff', padding: '16px', borderRadius: '8px' }}>
+                    <div style={{ fontWeight: '600' }}>{vydatPoz.nazvanie}</div>
+                    <div style={{ color: '#0369a1' }}>Текущий остаток: ~{vydatPoz.primerno_m2 || 0} м²</div>
+                  </div>
+                  <input 
+                    type="number" 
+                    placeholder="Введите количество (например, 2.9)" 
+                    value={vydatAmount}
+                    onChange={(e) => setVydatAmount(e.target.value)}
+                    style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #ccc', fontSize: '16px' }}
+                  />
+                  <button onClick={handleVydat} style={{ background: '#10b981', color: 'white', padding: '16px', borderRadius: '12px', border: 'none', fontSize: '16px', fontWeight: '600', cursor: 'pointer' }}>
+                    Списать и закрыть
+                  </button>
+                </>
+              )}
+
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ИСТОРИЯ */}
       {isHistoryOpen && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
           <div style={{ background: 'white', borderRadius: '16px', width: '100%', maxWidth: '600px', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
