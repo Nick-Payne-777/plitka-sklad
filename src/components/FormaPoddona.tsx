@@ -29,7 +29,7 @@ export default function FormaPoddona({ onClose, onSave, editPoddon, currentZona 
     setUploading(true)
     try {
       const fileName = `poddon_${Date.now()}.jpg`
-      const { data, error } = await supabase.storage.from('photos').upload(fileName, file)
+      const { error } = await supabase.storage.from('photos').upload(fileName, file)
       
       if (error) throw error
       
